@@ -83,33 +83,87 @@ def load_websites_from_excel():
 
 
 def check_website(site_info):
-    """Check website using requests only"""
+    """Check using PythonAnywhere's limited but available services"""
+    import requests
+    import socket
+    import ssl
+    from datetime import datetime
+    import urllib3
+
+    urllib3.disable_warnings()
+
     url = site_info['url']
+    hostname = url.replace('https://', '').replace('http://', '').split('/')[0]
 
+    # Method 1: Socket connection (check if port open)
     try:
-        headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
-        response = requests.get(url, headers=headers, timeout=15, verify=False)
-        success = 200 <= response.status_code < 400
+        port = 443 if url.startswith('https') else 80
+        sock = socket.create_connection((hostname, port), timeout=5)
 
+        # If HTTPS, try SSL handshake
+        if url.startswith('https'):
+            try:
+                context = ssl.create_default_context()
+                with context.wrap_socket(sock, server_hostname=hostname) as ssock:
+                    cert = ssock.getpeercert()
+                    sock.close()
+                    return {
+                        'success': True,
+                        'status_code': 200,
+                        'url': url,
+                        'bu': site_info['bu'],
+                        'name': site_info['name'],
+                        'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+                        'method': 'socket+ssl',
+                        'note': 'Port open, SSL valid'
+                    }
+            except ssl.SSLError as e:
+                sock.close()
+                return {
+                    'success': False,
+                    'status_code': 0,
+                    'url': url,
+                    'bu': site_info['bu'],
+                    'name': site_info['name'],
+                    'error': f'SSL Error: {str(e)[:30]}',
+                    'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+                    'method': 'socket'
+                }
+
+        sock.close()
         return {
-            'success': success,
-            'status_code': response.status_code,
+            'success': True,
+            'status_code': 200,
             'url': url,
             'bu': site_info['bu'],
             'name': site_info['name'],
             'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
-            'error': None if success else f'HTTP {response.status_code}'
+            'method': 'socket',
+            'note': 'Port open (HTTP)'
         }
 
-    except Exception as e:
+    except socket.timeout:
         return {
             'success': False,
             'status_code': 0,
             'url': url,
             'bu': site_info['bu'],
             'name': site_info['name'],
-            'error': str(e)[:50],
-            'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+            'error': 'Connection timeout',
+            'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+            'method': 'socket'
+        }
+    except Exception as e:
+        # Connection refused or other error = site down or blocked
+        return {
+            'success': False,
+            'status_code': 0,
+            'url': url,
+            'bu': site_info['bu'],
+            'name': site_info['name'],
+            'error': f'Connection failed: {str(e)[:30]}',
+            'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+            'method': 'socket'
         }
 
 

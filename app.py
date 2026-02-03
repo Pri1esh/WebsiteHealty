@@ -83,162 +83,35 @@ def load_websites_from_excel():
 
 
 def check_website(site_info):
-    """Check website - fast method first, Selenium fallback if blocked"""
     import requests
     import urllib3
-    urllib3.disable_warnings()
+    from datetime import datetime
 
+    urllib3.disable_warnings()
     url = site_info['url']
 
-    # Step 1: Try fast requests method
     try:
-        headers = {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
-        }
-        response = requests.get(url, headers=headers, timeout=10, verify=False)
-
-        # SUCCESS: 2xx or 3xx (redirects)
-        if 200 <= response.status_code < 400:
-            return {
-                'success': True,
-                'status_code': response.status_code,
-                'url': url,
-                'bu': site_info['bu'],
-                'name': site_info['name'],
-                'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
-                'method': 'fast'
-            }
-
-        # CLIENT ERRORS: 4xx (except some special cases)
-        # 403 Forbidden = FAIL (site is blocking us, but we can't access it)
-        # 401 Unauthorized = FAIL
-        # 404 Not Found = FAIL
-        # 405 Method Not Allowed = try GET instead of HEAD, but still fail if persists
-
-        if response.status_code in [403, 401, 404, 405, 406, 407, 408, 409, 410, 429]:
-            return {
-                'success': False,
-                'status_code': response.status_code,
-                'url': url,
-                'bu': site_info['bu'],
-                'name': site_info['name'],
-                'error': f'HTTP {response.status_code} - {"Forbidden" if response.status_code == 403 else "Client Error"}',
-                'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-            }
-
-        # SERVER ERRORS: 5xx (site is down)
-        if response.status_code >= 500:
-            return {
-                'success': False,
-                'status_code': response.status_code,
-                'url': url,
-                'bu': site_info['bu'],
-                'name': site_info['name'],
-                'error': f'HTTP {response.status_code} - Server Error',
-                'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-            }
-
-    except requests.exceptions.Timeout:
-        return {
-            'success': False,
-            'status_code': 0,
-            'url': url,
-            'bu': site_info['bu'],
-            'name': site_info['name'],
-            'error': 'Timeout',
-            'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-        }
-    except Exception as e:
-        # Continue to Selenium for connection errors, SSL errors, etc.
-        pass
-
-    # Step 2: Use Selenium for sites that might need JavaScript rendering
-    # BUT: We should NOT use Selenium for 403 errors - if requests got 403,
-    # Selenium will likely also be blocked or get a challenge page
-
-    print(f"   Trying Selenium for: {site_info['name']}")
-
-    try:
-        options = Options()
-        options.add_argument('--headless=new')
-        options.add_argument('--no-sandbox')
-        options.add_argument('--disable-dev-shm-usage')
-        options.add_argument('--disable-gpu')
-        options.add_argument('--window-size=1920,1080')
-        options.add_argument('--disable-blink-features=AutomationControlled')
-        options.add_experimental_option("excludeSwitches", ["enable-automation"])
-        options.add_experimental_option('useAutomationExtension', False)
-
-        driver = webdriver.Chrome(
-            service=Service(ChromeDriverManager().install()),
-            options=options
-        )
-
-        stealth(driver,
-                languages=["en-US", "en"],
-                vendor="Google Inc.",
-                platform="Win32",
-                webgl_vendor="Intel Inc.",
-                renderer="Intel Iris OpenGL Engine",
-                fix_hairline=True)
-
-        driver.set_page_load_timeout(25)
-        driver.get(url)
-
-        # Check if we hit a cloudflare/verification page
-        page_title = driver.title.lower()
-        page_source = driver.page_source.lower()
-
-        # Common indicators of being blocked
-        blocked_indicators = [
-            'access denied', '403 forbidden', 'blocked',
-            'cloudflare', 'captcha', 'verification',
-            'security check', 'ddos protection'
-        ]
-
-        is_blocked = any(indicator in page_title or indicator in page_source
-                         for indicator in blocked_indicators)
-
-        if is_blocked:
-            driver.quit()
-            return {
-                'success': False,
-                'status_code': 403,
-                'url': url,
-                'bu': site_info['bu'],
-                'name': site_info['name'],
-                'error': 'Blocked by WAF/Cloudflare',
-                'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
-                'method': 'selenium-blocked'
-            }
-
-        title = driver.title
-        driver.quit()
+        headers = {'User-Agent': 'Mozilla/5.0'}
+        response = requests.get(url, headers=headers, timeout=15, verify=False)
+        success = 200 <= response.status_code < 400
 
         return {
-            'success': True,
-            'status_code': 200,
+            'success': success,
+            'status_code': response.status_code,
             'url': url,
             'bu': site_info['bu'],
             'name': site_info['name'],
             'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
-            'method': 'selenium',
-            'title': title[:30]
+            'error': None if success else f'HTTP {response.status_code}'
         }
-
     except Exception as e:
-        try:
-            driver.quit()
-        except:
-            pass
-
         return {
             'success': False,
             'status_code': 0,
             'url': url,
             'bu': site_info['bu'],
             'name': site_info['name'],
-            'error': 'Selenium failed',
+            'error': str(e)[:50],
             'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
         }
 
