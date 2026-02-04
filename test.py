@@ -3,7 +3,7 @@ def test_adani_curl():
     from curl_cffi import requests
     from datetime import datetime
 
-    url = 'https://www.adani.com/mangaluru-airport'
+    url = 'https://www.acchelp.in/'
 
     print(f"Testing: {url}")
     print("Using curl_cffi with Chrome 120 impersonation")

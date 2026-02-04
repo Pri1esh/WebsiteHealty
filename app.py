@@ -152,42 +152,83 @@ selenium_required = set()
 
 
 def check_website(site_info):
-    """Check website using curl_cffi to bypass bot protection"""
+    """Check website using curl_cffi with free proxy fallback"""
     from curl_cffi import requests
     from datetime import datetime
+    import random
 
     url = site_info['url']
 
+    # List of free proxies (rotate these)
+    free_proxies = [
+        "http://43.153.113.214:8080",  # Public proxy - replace with fresh ones
+        "http://20.235.104.105:3128",
+        # Add more from: https://free-proxy-list.net/
+    ]
+
+    # Try without proxy first (might work for some sites)
     try:
         resp = requests.get(
             url,
             impersonate="chrome120",
-            timeout=20,
+            timeout=15,
             verify=False
         )
+        if resp.status_code == 200:
+            return {
+                'success': True,
+                'status_code': resp.status_code,
+                'url': url,
+                'bu': site_info['bu'],
+                'name': site_info['name'],
+                'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+                'error': None,
+                'method': 'direct'
+            }
+    except Exception:
+        pass
 
-        success = 200 <= resp.status_code < 400
+    # Try with proxy
+    for proxy in random.sample(free_proxies, len(free_proxies)):
+        try:
+            proxies = {
+                "http": proxy,
+                "https": proxy
+            }
 
-        return {
-            'success': success,
-            'status_code': resp.status_code,
-            'url': url,
-            'bu': site_info['bu'],
-            'name': site_info['name'],
-            'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
-            'error': None if success else f'HTTP {resp.status_code}'
-        }
+            resp = requests.get(
+                url,
+                impersonate="chrome120",
+                timeout=20,
+                verify=False,
+                proxies=proxies
+            )
 
-    except Exception as e:
-        return {
-            'success': False,
-            'status_code': 0,
-            'url': url,
-            'bu': site_info['bu'],
-            'name': site_info['name'],
-            'error': str(e)[:50],
-            'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-        }
+            if resp.status_code == 200:
+                return {
+                    'success': True,
+                    'status_code': resp.status_code,
+                    'url': url,
+                    'bu': site_info['bu'],
+                    'name': site_info['name'],
+                    'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+                    'error': None,
+                    'method': 'proxy',
+                    'proxy_used': proxy
+                }
+        except Exception:
+            continue
+
+    # All attempts failed
+    return {
+        'success': False,
+        'status_code': 0,
+        'url': url,
+        'bu': site_info['bu'],
+        'name': site_info['name'],
+        'error': 'Blocked by anti-bot (proxy needed)',
+        'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    }
 
 
 def success_response(url, site_info, status_code):
@@ -214,76 +255,6 @@ def fail_response(url, site_info, error):
         'error': error,
         'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
     }
-
-
-def check_website_selenium(site_info):
-    """Selenium fallback for stubborn sites"""
-    from selenium import webdriver
-    from selenium.webdriver.chrome.options import Options
-    from selenium.webdriver.chrome.service import Service
-    from datetime import datetime
-    import logging
-
-    logging.getLogger('selenium').setLevel(logging.ERROR)
-
-    url = site_info['url']
-    driver = None
-
-    try:
-        chrome_options = Options()
-        chrome_options.add_argument('--headless')
-        chrome_options.add_argument('--no-sandbox')
-        chrome_options.add_argument('--disable-dev-shm-usage')
-        chrome_options.add_argument('--disable-gpu')
-        chrome_options.add_argument('--single-process')
-        chrome_options.add_argument('--disable-extensions')
-        chrome_options.add_argument('--window-size=1920,1080')
-        chrome_options.add_argument('--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36')
-
-        # Try to use existing ChromeDriver or download
-        try:
-            from webdriver_manager.chrome import ChromeDriverManager
-            service = Service(ChromeDriverManager().install())
-        except:
-            service = Service('/usr/bin/chromedriver')  # Common Render path
-
-        driver = webdriver.Chrome(service=service, options=chrome_options)
-        driver.set_page_load_timeout(15)
-
-        driver.get(url)
-
-        # Simple check - if page loaded and has content
-        success = driver.find_element("tag name", "body") is not None
-
-        return {
-            'success': success,
-            'status_code': 200 if success else 403,
-            'url': url,
-            'bu': site_info['bu'],
-            'name': site_info['name'],
-            'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
-            'error': None if success else 'Selenium check failed',
-            'method': 'selenium'  # Track which method worked
-        }
-
-    except Exception as e:
-        return {
-            'success': False,
-            'status_code': 0,
-            'url': url,
-            'bu': site_info['bu'],
-            'name': site_info['name'],
-            'error': str(e)[:50],
-            'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-        }
-
-    finally:
-        if driver:
-            try:
-                driver.quit()
-            except:
-                pass
-
 
 def get_demo_websites():
     return [{'bu': 'Demo', 'url': 'https://www.google.com', 'name': 'google.com'}]
