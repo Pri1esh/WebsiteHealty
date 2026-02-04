@@ -147,28 +147,132 @@ def get_demo_websites():
     ]
 
 
+# Global cache to track which sites need Selenium
+selenium_required = set()
+
+
 def check_website(site_info):
     import requests
     import urllib3
+    import random
+    import time
     from datetime import datetime
+    from requests.adapters import HTTPAdapter
+    from urllib3.util.retry import Retry
 
     urllib3.disable_warnings()
     url = site_info['url']
 
+    # Check if this site previously needed Selenium
+    if url in selenium_required:
+        return check_website_selenium(site_info)
+
+    # Try lightweight request first
+    user_agents = [
+        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.2 Safari/605.1.15'
+    ]
+
+    def get_headers():
+        return {
+            'User-Agent': random.choice(user_agents),
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+            'Accept-Language': 'en-US,en;q=0.9',
+            'Accept-Encoding': 'gzip, deflate',
+            'Connection': 'keep-alive',
+            'Upgrade-Insecure-Requests': '1'
+        }
+
+    session = requests.Session()
+    retry = Retry(total=2, backoff_factor=0.5)
+    session.mount('https://', HTTPAdapter(max_retries=retry))
+
     try:
-        headers = {'User-Agent': 'Mozilla/5.0'}
-        response = requests.get(url, headers=headers, timeout=15, verify=False)
+        # Quick HEAD check
+        response = session.head(url, headers=get_headers(), timeout=8, verify=False, allow_redirects=True)
+
+        if response.status_code == 403:
+            raise requests.exceptions.RequestException("403 Forbidden")
+
+        if response.status_code == 405:
+            response = session.get(url, headers=get_headers(), timeout=10, verify=False, stream=True)
+            response.close()
+
         success = 200 <= response.status_code < 400
+
+        if success:
+            return {
+                'success': True,
+                'status_code': response.status_code,
+                'url': url,
+                'bu': site_info['bu'],
+                'name': site_info['name'],
+                'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+                'error': None
+            }
+        else:
+            raise requests.exceptions.RequestException(f"Status {response.status_code}")
+
+    except Exception as e:
+        # If requests fail, try Selenium and mark for future
+        print(f"  Requests failed for {url}, trying Selenium...")
+        selenium_required.add(url)
+        return check_website_selenium(site_info)
+
+    finally:
+        session.close()
+
+
+def check_website_selenium(site_info):
+    """Selenium fallback for stubborn sites"""
+    from selenium import webdriver
+    from selenium.webdriver.chrome.options import Options
+    from selenium.webdriver.chrome.service import Service
+    from datetime import datetime
+    import logging
+
+    logging.getLogger('selenium').setLevel(logging.ERROR)
+
+    url = site_info['url']
+    driver = None
+
+    try:
+        chrome_options = Options()
+        chrome_options.add_argument('--headless')
+        chrome_options.add_argument('--no-sandbox')
+        chrome_options.add_argument('--disable-dev-shm-usage')
+        chrome_options.add_argument('--disable-gpu')
+        chrome_options.add_argument('--single-process')
+        chrome_options.add_argument('--disable-extensions')
+        chrome_options.add_argument('--window-size=1920,1080')
+        chrome_options.add_argument('--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36')
+
+        # Try to use existing ChromeDriver or download
+        try:
+            from webdriver_manager.chrome import ChromeDriverManager
+            service = Service(ChromeDriverManager().install())
+        except:
+            service = Service('/usr/bin/chromedriver')  # Common Render path
+
+        driver = webdriver.Chrome(service=service, options=chrome_options)
+        driver.set_page_load_timeout(15)
+
+        driver.get(url)
+
+        # Simple check - if page loaded and has content
+        success = driver.find_element("tag name", "body") is not None
 
         return {
             'success': success,
-            'status_code': response.status_code,
+            'status_code': 200 if success else 403,
             'url': url,
             'bu': site_info['bu'],
             'name': site_info['name'],
             'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
-            'error': None if success else f'HTTP {response.status_code}'
+            'error': None if success else 'Selenium check failed',
+            'method': 'selenium'  # Track which method worked
         }
+
     except Exception as e:
         return {
             'success': False,
@@ -179,6 +283,13 @@ def check_website(site_info):
             'error': str(e)[:50],
             'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
         }
+
+    finally:
+        if driver:
+            try:
+                driver.quit()
+            except:
+                pass
 
 
 def get_demo_websites():
