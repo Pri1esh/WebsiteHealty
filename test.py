@@ -1,61 +1,40 @@
-from selenium import webdriver
-from selenium.webdriver.chrome.options import Options
-from selenium.webdriver.chrome.service import Service
-from webdriver_manager.chrome import ChromeDriverManager
-from selenium_stealth import stealth
-import time
+def test_adani_curl():
+    """Test Adani Mangaluru Airport with curl_cffi"""
+    from curl_cffi import requests
+    from datetime import datetime
 
+    url = 'https://www.adani.com/mangaluru-airport'
 
-def test_selenium_stealth(url):
-    """Use Selenium with stealth mode to bypass detection"""
+    print(f"Testing: {url}")
+    print("Using curl_cffi with Chrome 120 impersonation")
+    print("-" * 50)
+
     try:
-        options = Options()
+        # impersonate="chrome120" mimics real browser TLS + headers exactly
+        resp = requests.get(
+            url,
+            impersonate="chrome120",
+            timeout=20,
+            verify=False
+        )
 
-        # Stealth options
-        options.add_argument('--headless=new')
-        options.add_argument('--no-sandbox')
-        options.add_argument('--disable-dev-shm-usage')
-        options.add_argument('--disable-gpu')
-        options.add_argument('--window-size=1920,1080')
+        print(f"Status Code: {resp.status_code}")
+        print(f"Response Length: {len(resp.text)} characters")
+        print(f"Content-Type: {resp.headers.get('content-type', 'N/A')}")
 
-        # Hide automation flags
-        options.add_experimental_option("excludeSwitches", ["enable-automation", "enable-logging"])
-        options.add_experimental_option('useAutomationExtension', False)
-
-        print("Starting Chrome with Stealth...")
-        driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=options)
-
-        # Apply stealth
-        stealth(driver,
-                languages=["en-US", "en"],
-                vendor="Google Inc.",
-                platform="Win32",
-                webgl_vendor="Intel Inc.",
-                renderer="Intel Iris OpenGL Engine",
-                fix_hairline=True,
-                )
-
-        print(f"Navigating to {url}...")
-        start_time = time.time()
-        driver.get(url)
-        load_time = time.time() - start_time
-
-        print(f"\n{'=' * 50}")
-        print(f"✅ SUCCESS!")
-        print(f"Page Title: {driver.title}")
-        print(f"Current URL: {driver.current_url}")
-        print(f"Load Time: {load_time:.2f}s")
-        print(f"{'=' * 50}")
-
-        driver.quit()
-        return True
+        if resp.status_code == 200 and len(resp.text) > 5000:
+            print("\n✅ SUCCESS - Will work on Render")
+            print("First 200 chars:", resp.text[:200].replace('\n', ' '))
+            return True
+        else:
+            print(f"\n⚠️  Unexpected response (Status: {resp.status_code})")
+            return False
 
     except Exception as e:
-        print(f"\n❌ FAILED: {e}")
-        import traceback
-        traceback.print_exc()
+        print(f"\n❌ FAILED: {str(e)}")
         return False
 
 
-# Test
-test_selenium_stealth("https://csmia-mumbai.adaniairports.com/")
+# Run test
+if __name__ == "__main__":
+    test_adani_curl()

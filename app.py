@@ -152,75 +152,68 @@ selenium_required = set()
 
 
 def check_website(site_info):
-    import requests
-    import urllib3
-    import random
-    import time
+    """Check website using curl_cffi to bypass bot protection"""
+    from curl_cffi import requests
     from datetime import datetime
-    from requests.adapters import HTTPAdapter
-    from urllib3.util.retry import Retry
 
-    urllib3.disable_warnings()
     url = site_info['url']
 
-    # Check if this site previously needed Selenium
-    if url in selenium_required:
-        return check_website_selenium(site_info)
+    try:
+        resp = requests.get(
+            url,
+            impersonate="chrome120",
+            timeout=20,
+            verify=False
+        )
 
-    # Try lightweight request first
-    user_agents = [
-        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-        'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.2 Safari/605.1.15'
-    ]
+        success = 200 <= resp.status_code < 400
 
-    def get_headers():
         return {
-            'User-Agent': random.choice(user_agents),
-            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-            'Accept-Language': 'en-US,en;q=0.9',
-            'Accept-Encoding': 'gzip, deflate',
-            'Connection': 'keep-alive',
-            'Upgrade-Insecure-Requests': '1'
+            'success': success,
+            'status_code': resp.status_code,
+            'url': url,
+            'bu': site_info['bu'],
+            'name': site_info['name'],
+            'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+            'error': None if success else f'HTTP {resp.status_code}'
         }
 
-    session = requests.Session()
-    retry = Retry(total=2, backoff_factor=0.5)
-    session.mount('https://', HTTPAdapter(max_retries=retry))
-
-    try:
-        # Quick HEAD check
-        response = session.head(url, headers=get_headers(), timeout=8, verify=False, allow_redirects=True)
-
-        if response.status_code == 403:
-            raise requests.exceptions.RequestException("403 Forbidden")
-
-        if response.status_code == 405:
-            response = session.get(url, headers=get_headers(), timeout=10, verify=False, stream=True)
-            response.close()
-
-        success = 200 <= response.status_code < 400
-
-        if success:
-            return {
-                'success': True,
-                'status_code': response.status_code,
-                'url': url,
-                'bu': site_info['bu'],
-                'name': site_info['name'],
-                'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
-                'error': None
-            }
-        else:
-            raise requests.exceptions.RequestException(f"Status {response.status_code}")
-
     except Exception as e:
-        # If requests fail, try Selenium and mark for future
-        print(f"  Requests failed for {url}, trying Selenium...")
-        selenium_required.add(url)
-        return check_website_selenium(site_info)
+        return {
+            'success': False,
+            'status_code': 0,
+            'url': url,
+            'bu': site_info['bu'],
+            'name': site_info['name'],
+            'error': str(e)[:50],
+            'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        }
 
-    finally:
-        session.close()
+
+def success_response(url, site_info, status_code):
+    from datetime import datetime
+    return {
+        'success': True,
+        'status_code': status_code,
+        'url': url,
+        'bu': site_info['bu'],
+        'name': site_info['name'],
+        'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+        'error': None
+    }
+
+
+def fail_response(url, site_info, error):
+    from datetime import datetime
+    return {
+        'success': False,
+        'status_code': 0,
+        'url': url,
+        'bu': site_info['bu'],
+        'name': site_info['name'],
+        'error': error,
+        'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    }
 
 
 def check_website_selenium(site_info):
